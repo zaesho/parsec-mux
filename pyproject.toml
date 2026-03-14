@@ -1,0 +1,17 @@
+[project]
+name = "parsec-mux"
+version = "0.1.0"
+description = "tmux-style session manager for Parsec"
+requires-python = ">=3.10"
+dependencies = [
+    "textual>=0.40.0",
+    "requests>=2.28.0",
+]
+
+[project.scripts]
+parsec-mux = "parsec_mux.__main__:main"
+pmux = "parsec_mux.__main__:main"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
