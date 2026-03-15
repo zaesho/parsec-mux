@@ -11,7 +11,8 @@ FRAMEWORKS = -framework SDL2 \
              -framework CoreAudio -framework AudioToolbox -framework IOKit \
              -framework Carbon -framework AppKit -framework Metal \
              -framework QuartzCore -framework CoreGraphics -framework CoreFoundation \
-             -framework Security -framework IOSurface -framework CoreVideo
+             -framework Security -framework IOSurface -framework CoreVideo \
+             -framework CoreText
 
 TARGET = pmux-viewer
 

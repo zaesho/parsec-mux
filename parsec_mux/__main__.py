@@ -23,32 +23,54 @@ VIEWER_BIN = VIEWER_DIR / "pmux-viewer"
 SESSIONS_FILE = CONFIG_DIR / "viewer_sessions.tsv"
 
 
-def launch_viewer(session_id: str, config: Config, slotted: list | None = None) -> None:
+def launch_viewer(session_id: str, config: Config, slotted: list | None = None, grid: bool = False) -> None:
     """Write config and exec into the native viewer."""
+    api = ParsecAPI()
+
     if slotted is None:
         slotted = sorted(
             [p for p in config.favorites.values() if p.slot],
             key=lambda x: x.slot or 99,
         )
 
-    # Write sessions file for the C viewer
+    # Write sessions file: favorites with slots first, then all other
+    # online hosts with slot=0 (available for swap via Cmd+Shift+S)
     CONFIG_DIR.mkdir(exist_ok=True)
+    slotted_peers = {p.peer_id for p in slotted}
+
+    try:
+        hosts = api.get_hosts(session_id)
+    except Exception:
+        hosts = []
+
     with open(SESSIONS_FILE, "w") as f:
+        # Slotted favorites first
         for p in slotted:
             f.write(f"{p.slot}\t{p.peer_id}\t{p.nickname}\n")
+        # All other online hosts with slot=0
+        for h in hosts:
+            if h.peer_id not in slotted_peers and h.online:
+                name = config.get_nickname(h.peer_id) or h.name
+                f.write(f"0\t{h.peer_id}\t{name}\n")
 
     if not VIEWER_BIN.exists():
         print(f"Viewer binary not found at {VIEWER_BIN}")
         print("Build it: cd ~/parsec-mux/viewer && make")
         sys.exit(1)
 
-    print(f"\nLaunching viewer with {len(slotted)} sessions:")
+    extra_count = sum(1 for h in hosts if h.peer_id not in slotted_peers and h.online)
+    print(f"\nLaunching viewer with {len(slotted)} sessions (+{extra_count} available):")
     for p in slotted:
-        print(f"  [Cmd+{p.slot}] {p.nickname}")
-    print("\n  Cmd+8/9 = prev/next | Cmd+` = disconnect | Cmd+Q = quit\n")
+        print(f"  [Cmd+Shift+{p.slot}] {p.nickname}")
+    print("\n  Cmd+Shift+S=swap session  Cmd+Shift+G=grid  Cmd+Q=quit\n")
 
     os.chdir(VIEWER_DIR)
-    os.execv(str(VIEWER_BIN), [str(VIEWER_BIN), session_id, str(SESSIONS_FILE)])
+    os.environ["PARSEC_SESSION_ID"] = session_id
+    args_list = [str(VIEWER_BIN)]
+    if grid:
+        args_list.append("--grid")
+    args_list.append(str(SESSIONS_FILE))
+    os.execv(str(VIEWER_BIN), args_list)
 
 
 # ── quick setup (interactive, no TUI needed) ─────────────────
@@ -143,6 +165,24 @@ def cmd_default(args: argparse.Namespace) -> None:
     launch_viewer(session_id, config, slotted)
 
 
+def cmd_grid(args: argparse.Namespace) -> None:
+    """Launch directly into 2x2 grid mode."""
+    api = ParsecAPI()
+    session_id = ensure_session(api)
+    config = Config()
+
+    slotted = sorted(
+        [p for p in config.favorites.values() if p.slot],
+        key=lambda x: x.slot or 99,
+    )
+
+    if not slotted:
+        print("No favorites configured. Run 'pmux' first to set up.")
+        sys.exit(1)
+
+    launch_viewer(session_id, config, slotted, grid=True)
+
+
 def cmd_setup(args: argparse.Namespace) -> None:
     """TUI for managing favorites and slots."""
     api = ParsecAPI()
@@ -219,6 +259,7 @@ def main() -> None:
     )
     sub = parser.add_subparsers(dest="command")
 
+    sub.add_parser("grid", help="Launch directly in 2x2 grid mode")
     sub.add_parser("setup", help="Open TUI to manage favorites and slots")
     sub.add_parser("list", help="List all available hosts")
     sub.add_parser("add", help="Add hosts to favorites interactively")
@@ -231,6 +272,7 @@ def main() -> None:
     args = parser.parse_args()
 
     commands = {
+        "grid": cmd_grid,
         "setup": cmd_setup,
         "list": cmd_list,
         "add": cmd_add,
