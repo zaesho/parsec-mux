@@ -9,3 +9,4 @@ pmux-viewer
 *.o
 .DS_Store
 viewer_sessions.tsv
+.claude/worktrees/
