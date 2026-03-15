@@ -44,9 +44,14 @@ def launch_viewer(session_id: str, config: Config, slotted: list | None = None, 
         hosts = []
 
     with open(SESSIONS_FILE, "w") as f:
-        # Slotted favorites first
+        # Slotted favorites first (with optional resolution)
         for p in slotted:
-            f.write(f"{p.slot}\t{p.peer_id}\t{p.nickname}\n")
+            rx = p.settings.get("res_x", 0)
+            ry = p.settings.get("res_y", 0)
+            if rx or ry:
+                f.write(f"{p.slot}\t{p.peer_id}\t{p.nickname}\t{rx}\t{ry}\n")
+            else:
+                f.write(f"{p.slot}\t{p.peer_id}\t{p.nickname}\n")
         # All other online hosts with slot=0
         for h in hosts:
             if h.peer_id not in slotted_peers and h.online:

@@ -40,11 +40,20 @@ enum view_mode    { MODE_SINGLE=0, MODE_GRID };
 #define NETWORK_FAIL_MAX    5
 #define STAGGER_DELAY_MS    2500
 
-struct session { char peer_id[64]; char name[64]; int slot; };
+/* Resolution presets for Cmd+Shift+Q cycling */
+static const int RES_CYCLE[][2] = {
+    {0, 0},          /* native / host default */
+    {1920, 1080},    /* 1080p */
+    {2560, 1440},    /* 1440p */
+    {3840, 2160},    /* 4K */
+};
+#define RES_CYCLE_COUNT ((int)(sizeof(RES_CYCLE)/sizeof(RES_CYCLE[0])))
+
+struct session { char peer_id[64]; char name[64]; int slot; int res_x, res_y; };
 
 struct conn_health {
     enum health_state state;
-    float latency, bitrate;
+    float latency, bitrate, encode_latency, decode_latency;
     uint32_t queued_frames;
     int net_fail_count;
     uint32_t last_check, lost_at;
@@ -207,6 +216,7 @@ static void check_health(struct viewer *v)
             printf("[pmux] Lost %s (%d)\n",v->sessions[i].name,cs); update_title(v); continue; }
         ParsecMetrics *m=&st.self.metrics[0];
         h->latency=m->networkLatency; h->bitrate=m->bitrate; h->queued_frames=m->queuedFrames;
+        h->encode_latency=m->encodeLatency; h->decode_latency=m->decodeLatency;
         if (st.networkFailure) h->net_fail_count++; else h->net_fail_count=0;
         if (h->net_fail_count>=NETWORK_FAIL_MAX) {
             h->state=HEALTH_LOST; ParsecClientDisconnect(v->parsec[i]);
@@ -234,12 +244,30 @@ static void connect_session(struct viewer *v, int idx)
 {
     if (idx<0||idx>=v->session_count||v->connected[idx]) return;
     printf("[pmux] Connecting to %s...\n", v->sessions[idx].name);
-    ParsecStatus e=ParsecClientConnect(v->parsec[idx],NULL,v->session_id,v->sessions[idx].peer_id);
+
+    ParsecClientConfig cfg = PARSEC_CLIENT_DEFAULTS;
+    cfg.video[0].decoderH265  = true;
+    cfg.video[0].decoderIndex = 1;
+    cfg.video[0].resolutionX  = v->sessions[idx].res_x;
+    cfg.video[0].resolutionY  = v->sessions[idx].res_y;
+    cfg.video[1].decoderH265  = true;
+    cfg.video[1].decoderIndex = 1;
+    if (cfg.video[0].resolutionX || cfg.video[0].resolutionY)
+        printf("[pmux] Resolution: %dx%d\n", cfg.video[0].resolutionX, cfg.video[0].resolutionY);
+
+    ParsecStatus e=ParsecClientConnect(v->parsec[idx],&cfg,v->session_id,v->sessions[idx].peer_id);
     if (e==PARSEC_OK) {
         v->connected[idx]=true; v->health[idx]=(struct conn_health){0};
         update_dimensions(v,idx);
         ParsecClientEnableStream(v->parsec[idx],1,true);
         printf("[pmux] Connected to %s\n",v->sessions[idx].name);
+
+        ParsecClientStatus status = {0};
+        if (ParsecClientGetStatus(v->parsec[idx],&status)==PARSEC_OK) {
+            printf("[pmux] Decoder[0]: name=%s h265=%s\n",
+                status.decoder[0].name,
+                status.decoder[0].h265 ? "yes" : "no");
+        }
     } else printf("[pmux] Connect %s failed: %d\n",v->sessions[idx].name,e);
 }
 
@@ -395,11 +423,14 @@ static int load_sessions(const char *path, struct session *sessions)
     while (count<MAX_SESSIONS && fgets(line,sizeof(line),f)) {
         char *nl=strchr(line,'\n'); if (nl) *nl=0;
         if (line[0]=='#'||line[0]==0) continue;
-        int slot=0; char pid[64]="",name[64]="";
-        if (sscanf(line,"%d\t%63s\t%63[^\n]",&slot,pid,name)>=3) {
+        int slot=0, rx=0, ry=0; char pid[64]="",name[64]="";
+        int fields=sscanf(line,"%d\t%63s\t%63[^\t\n]\t%d\t%d",&slot,pid,name,&rx,&ry);
+        if (fields>=3) {
             sessions[count].slot=slot;
             strncpy(sessions[count].peer_id,pid,63);
             strncpy(sessions[count].name,name,63);
+            sessions[count].res_x=(fields>=5)?rx:0;
+            sessions[count].res_y=(fields>=5)?ry:0;
             count++;
         }
     }
@@ -808,8 +839,9 @@ static int32_t render_thread(void *opaque)
                         struct conn_health *h = (idx>=0) ? &v->health[idx] : NULL;
                         char buf[128];
                         if (h && v->connected[idx])
-                            snprintf(buf, sizeof(buf), "%s  %.0f FPS  %.1f Mbps  %.0fms",
-                                v->sessions[idx].name, v->fps, h->bitrate, h->latency);
+                            snprintf(buf, sizeof(buf), "%s %.0fFPS %.1fMbps L:%.0f E:%.1f D:%.1f",
+                                v->sessions[idx].name, v->fps, h->bitrate, h->latency,
+                                h->encode_latency, h->decode_latency);
                         else
                             snprintf(buf, sizeof(buf), "%s  disconnected",
                                 idx>=0 ? v->sessions[idx].name : "---");
@@ -830,8 +862,9 @@ static int32_t render_thread(void *opaque)
                     struct conn_health *h = (a>=0) ? &v->health[a] : NULL;
                     char buf[128];
                     if (h && a>=0 && v->connected[a])
-                        snprintf(buf, sizeof(buf), "%s  %.0f FPS  %.1f Mbps  %.0fms",
-                            v->sessions[a].name, v->fps, h->bitrate, h->latency);
+                        snprintf(buf, sizeof(buf), "%s %.0fFPS %.1fMbps L:%.0f E:%.1f D:%.1f",
+                            v->sessions[a].name, v->fps, h->bitrate, h->latency,
+                            h->encode_latency, h->decode_latency);
                     else
                         snprintf(buf, sizeof(buf), "disconnected");
                     g_debug_tex_w[GRID_MAX] = label_tw;
@@ -1138,6 +1171,24 @@ int32_t main(int32_t argc, char **argv)
                 if (key==SDLK_f) { if (v.mode==MODE_GRID) enter_single_mode(&v); continue; }
                 if (key==SDLK_s) { open_picker(&v); continue; }
                 if (key==SDLK_d) { v.show_debug=!v.show_debug; continue; }
+                if (key==SDLK_q && !(msg.key.keysym.mod & KMOD_GUI)) {
+                    /* Cmd+Shift+Q (without bare Cmd+Q which is quit): cycle resolution */
+                    if (v.active>=0) {
+                        int a=v.active;
+                        int cur_rx=v.sessions[a].res_x, cur_ry=v.sessions[a].res_y;
+                        int ci=0;
+                        for (int i=0;i<RES_CYCLE_COUNT;i++)
+                            if (RES_CYCLE[i][0]==cur_rx && RES_CYCLE[i][1]==cur_ry) { ci=i; break; }
+                        ci=(ci+1)%RES_CYCLE_COUNT;
+                        v.sessions[a].res_x=RES_CYCLE[ci][0];
+                        v.sessions[a].res_y=RES_CYCLE[ci][1];
+                        printf("[pmux] Resolution -> %dx%d\n", RES_CYCLE[ci][0], RES_CYCLE[ci][1]);
+                        disconnect_session(&v, a);
+                        SDL_Delay(300);
+                        connect_session(&v, a);
+                    }
+                    continue;
+                }
                 /* Arrow keys navigate grid quadrants */
                 if (v.mode==MODE_GRID && v.grid_count>1) {
                     int fgi=-1;
