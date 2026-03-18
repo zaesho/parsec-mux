@@ -1,113 +1,156 @@
 # parsec-mux
 
-A session manager and custom viewer for Parsec, inspired by tmux. Instead of clicking through the Parsec GUI to switch between remote machines, parsec-mux lets you manage multiple sessions from the command line and switch between them with keyboard shortcuts.
+A multi-session Parsec remote desktop client with a Termius-inspired dark UI. Browse all your Parsec hosts, manage favorites, and connect to up to 9 sessions simultaneously with GPU-accelerated Metal rendering, audio mixing, and clipboard passthrough.
 
-The project has two parts: a Python CLI that handles authentication and session configuration, and a C viewer that connects directly to Parsec hosts using the SDK.
+The project has three parts: a Python CLI for authentication and host management, a legacy C viewer (SDL2), and **pmux** — a native SwiftUI + Metal macOS app that replaces the C viewer with a modern interface.
 
-## How it works
+## pmux (SwiftUI viewer)
 
-parsec-mux reads your existing Parsec login from the app's WebKit cache, so you don't need to sign in separately. It talks to the Parsec Kessel API to discover your hosts, then launches a native viewer built on the Parsec C SDK and SDL2.
+The primary viewer. A hybrid SwiftUI + Metal app with:
 
-The viewer creates a separate SDK instance for each configured session, each bound to its own UDP port. In single mode it connects to one host at a time. In grid mode it connects up to four hosts simultaneously using staggered connections to avoid NAT hole-punch collisions.
+- **Live host browser** — fetches all available hosts from the Parsec Kessel API
+- **Favorites management** — star hosts, assign F-key slots (F1–F9), persist to favorites.json
+- **Multi-session rendering** — one MTKView per session, GPU NV12→RGB conversion
+- **Grid mode** — 2x2 layout with per-pane Metal rendering and local mouse coordinates
+- **Audio mixer** — per-session volume control with AfV (audio follows video), grid mix, manual, and all modes
+- **Clipboard passthrough** — bidirectional text clipboard between local and remote
+- **Health monitoring** — live latency, bitrate, codec info in status bar and debug overlay
+- **Dark themed UI** — custom color system (#13141f base), no stock macOS controls
+- **Keyboard shortcuts** — F-keys for slots, Cmd+Shift combos for all actions
 
-## Dependencies
-
-- Python 3.10+
-- Parsec (must be installed and logged in)
-- SDL2 framework (included in viewer/ or install via brew)
-- Parsec SDK v6.0 headers and dylib (included in viewer/sdk/, x86_64)
-- macOS (uses Rosetta 2 for the x86_64 SDK on Apple Silicon)
-
-## Setup
+### Architecture
 
 ```
+SwiftUI App (@main) + NSApplicationDelegateAdaptor
+  ├── AppState (@Observable) — single source of truth
+  ├── SessionManager — dynamic client pool, connections, input, audio, clipboard
+  ├── MetalContext — shared device, pipelines, shaders
+  └── ContentView
+       ├── Sidebar (custom dark, two sections: Favorites + Available)
+       ├── Tab Bar (connected sessions)
+       ├── Render Area
+       │    ├── Single: ParsecRenderView(session)
+       │    └── Grid: VStack/HStack { ParsecRenderView × 4 }
+       ├── Status Bar (segmented metrics)
+       └── Overlays (debug, quality picker, settings, audio mixer)
+
+ParsecRenderView (NSViewRepresentable)
+  └── RenderContainerView (NSView)
+       ├── SingleStreamMTKView — polls ONE stream, renders ONE quad
+       └── ParsecInputView — keyboard/mouse capture
+```
+
+### Build
+
+Requires macOS 14+ and Xcode Command Line Tools.
+
+```bash
+cd swift-app
+swift build -c release
+bash build.sh          # produces build/pmux.app
+open build/pmux.app
+```
+
+The Parsec SDK dylibs (ARM64 + x86_64) are bundled in `Sources/CParsecBridge/include/`.
+
+### File structure
+
+```
+swift-app/Sources/PMuxViewer/
+  App/
+    PMuxApp.swift            SwiftUI @main + NSApplicationDelegateAdaptor
+    AppState.swift           @Observable state (sessions, hosts, settings)
+    SessionManager.swift     Connections, input, audio, clipboard, health
+    MetalContext.swift        Shared Metal device + pipelines + shaders
+  Audio/
+    AudioMixer.swift         AVAudioEngine multi-session mixer
+    AudioRingBuffer.swift    Lock-free SPSC ring buffer (int16→float32)
+  Model/
+    ParsecAPIClient.swift    Kessel REST API (host discovery)
+    FavoritesManager.swift   CRUD for ~/.parsec-mux/favorites.json
+    ParsecClient.swift       Swift wrapper around C bridge
+    SessionAuth.swift        Session token extraction
+    StreamFrame.swift        Per-stream NV12/RGBA frame data
+  Theme/
+    PMuxTheme.swift          Colors, fonts, spacing constants
+    PMuxComponents.swift     StatusDot, Pill, Divider, SegmentedControl
+  Views/
+    ContentView.swift        Root layout (sidebar + tabs + render + status)
+    Sidebar/
+      SessionSidebar.swift   Two-section host browser with search
+      SessionSidebarRow.swift  Favorite host card with hover/star/slot
+      HostBrowserRow.swift   Available host row with connect/star
+    Tabs/
+      SessionTabBar.swift    Connected session tab strip
+      SessionTab.swift       Individual tab with accent indicator
+    Renderer/
+      ParsecRenderView.swift   NSViewRepresentable bridge
+      SingleStreamMTKView.swift  MTKView for one stream
+      ParsecInputView.swift  Keyboard/mouse/combo capture
+    Panels/
+      StatusBar.swift        Bottom metrics bar
+      DebugOverlay.swift     Two-column debug info
+      QualityPicker.swift    Resolution/codec/color/decoder modal
+      SettingsPane.swift     App settings modal
+      AudioMixerPanel.swift  Per-session volume + mix mode control
+```
+
+### Keyboard shortcuts
+
+```
+F1–F8              Switch to session by slot
+Cmd+Shift+G        Toggle grid mode
+Cmd+Shift+S        Toggle sidebar
+Cmd+Shift+D        Toggle debug overlay
+Cmd+Shift+Q        Quality settings
+Cmd+Shift+8/9      Previous / next session
+Cmd+Shift+R        Reconnect
+Cmd+Shift+`        Disconnect
+Cmd+Shift+F        Force single mode
+Cmd+Shift+Arrows   Navigate grid
+```
+
+## Python CLI
+
+Handles authentication and host management. Still works standalone or alongside the SwiftUI viewer.
+
+```bash
 cd parsec-mux
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
-```
 
-You also need the SDL2 framework in the viewer directory. Download it from the SDL2 GitHub releases page (the macOS .dmg), copy SDL2.framework into viewer/.
-
-For the Parsec SDK, you need libparsec.dylib in viewer/sdk/. The headers (parsec.h, parsec-dso.h) are already included. The dylib is not checked into git because of its size. You can find it in the parsec-sdk mirrors on GitHub (tantum101/Parsec, branch master, sdk/macos/libparsec.dylib).
-
-Build the viewer:
-
-```
-cd viewer
-make
-```
-
-Then add the CLI to your path. The install script creates a wrapper at ~/.local/bin/pmux that points to the venv:
-
-```
-# already done if you followed the setup, but manually:
-ln -sf /path/to/parsec-mux/.venv/bin/parsec-mux ~/.local/bin/pmux
-```
-
-## Usage
-
-Run pmux with no arguments to launch the viewer. On first run it will ask you to pick which hosts to add.
-
-```
 pmux              launch the viewer (or first-time setup)
-pmux setup        open the TUI to manage favorites and slots
-pmux list         show all available hosts and their status
-pmux add          add more hosts interactively
+pmux setup        open TUI to manage favorites
+pmux list         show all available hosts
+pmux add          add hosts interactively
 pmux remove NAME  remove a host from favorites
-pmux reset        clear all favorites
 pmux auth         re-authenticate with Parsec
 ```
 
-## Viewer keybindings
-
-All keybindings use the Command key.
-
-```
-Cmd+1 through Cmd+7    switch to session by slot number
-Cmd+8                  previous session
-Cmd+9                  next session
-Cmd+`                  disconnect current session
-Cmd+R                  reconnect current session
-Cmd+G                  toggle grid mode (1x1 / 2x2)
-Cmd+F                  fullscreen the focused quadrant (exit grid)
-Cmd+Q                  quit
-```
-
-In grid mode, click on a quadrant to focus it. Keyboard and mouse input go to the focused session. Audio also follows focus.
-
 ## How sessions work
 
-Each session is a favorite with a slot number (1-9). Favorites are stored in ~/.parsec-mux/favorites.json. The viewer reads a generated TSV file with slot, peer_id, and nickname per line.
+Each favorite has a slot (1–9) and is stored in `~/.parsec-mux/favorites.json`. The SwiftUI viewer reads this directly and also fetches live host status from the Parsec Kessel API.
 
-In single mode, switching sessions disconnects the current one and connects the new one. The SDK instance stays initialized so reconnection is fast (STUN info is cached).
+Sessions use a dynamic client pool — ParsecClient instances are allocated on demand (up to 9, ports 13000–13008). Favorites auto-connect on launch with staggered timing. Non-favorite hosts can be connected ad-hoc from the sidebar.
 
-In grid mode, up to four sessions connect simultaneously. Each SDK instance binds to a different port (13000, 14000, 15000, 16000) to prevent NAT conflicts. Connections are staggered with a 2 second delay between each to avoid hole-punch collisions when hosts share the same public IP.
+In grid mode, each pane has its own MTKView with local mouse coordinates — no quadrant remapping needed. `setDimensions` matches each pane's pixel size automatically.
 
-## Connection health
+## Audio
 
-The viewer monitors connection quality and shows it in the title bar. Latency under 60ms is normal, 60-150ms is degraded, above 150ms is bad. If the network fails repeatedly the session is marked as lost and the viewer will try to reconnect automatically with exponential backoff.
+The Parsec SDK delivers stereo 16-bit PCM at 48kHz per session. pmux uses AVAudioEngine with one AVAudioSourceNode per session, connected through per-session mixer nodes for individual volume control.
 
-## Project structure
+Mix modes:
+- **AfV** — audio follows the active session
+- **Grid** — all grid-visible sessions mixed
+- **Manual** — per-session volume sliders
+- **All** — every connected session at full volume
 
-```
-parsec_mux/          Python package
-  __main__.py        CLI entry point
-  api.py             Parsec Kessel API client
-  auth.py            session extraction from Parsec's WebKit cache
-  config.py          favorites and settings management
-  sessions.py        legacy process-based session manager (used by TUI)
-  tui.py             Textual TUI for setup
-
-viewer/              C viewer
-  viewer.c           main viewer source (~890 lines)
-  sdk/               Parsec SDK headers (parsec.h, parsec-dso.h)
-  Makefile           builds pmux-viewer as x86_64
-```
+Audio is polled at 100Hz and flows through a lock-free ring buffer to the audio render thread.
 
 ## Known limitations
 
-- The Parsec SDK is x86_64 only. On Apple Silicon the viewer runs under Rosetta 2. Video decoding and rendering are still hardware accelerated.
-- Mouse input may not work correctly depending on the HiDPI scaling configuration. The viewer scales coordinates by the display scale factor but this has not been tested on all setups.
-- Grid mode can only show 4 sessions. The 2x2 layout is hardcoded.
-- The parsec:// URL scheme approach for controlling the Parsec app did not work reliably for session switching, which is why the custom viewer was built.
+- Image and file clipboard not supported (SDK only handles text via user data id 7)
+- USB device passthrough not available (requires separate software like VirtualHere)
+- Audio may have compatibility issues under Rosetta 2
+- Grid mode limited to 4 sessions (2x2 layout)
+- `getBuffer`/`freeBuffer` for cursor images may crash under Rosetta 2 (clipboard works on native ARM64)

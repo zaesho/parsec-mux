@@ -1,0 +1,4 @@
+module CParsecBridge {
+    header "parsec_bridge.h"
+    export *
+}
