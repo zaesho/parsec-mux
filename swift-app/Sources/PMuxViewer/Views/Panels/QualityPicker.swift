@@ -7,12 +7,15 @@ struct QualityPicker: View {
     @Environment(SessionManager.self) private var sessionManager
 
     var body: some View {
-        if appState.showQualityPicker {
+        if appState.activeOverlay == .qualityPicker {
             ZStack {
-                // Backdrop
-                Color.black.opacity(0.4)
+                // Backdrop — blocks all input to views underneath
+                Rectangle()
+                    .fill(Color.black.opacity(0.4))
                     .ignoresSafeArea()
+                    .contentShape(Rectangle())
                     .onTapGesture { dismiss() }
+                    .allowsHitTesting(true)
 
                 // Modal
                 VStack(spacing: 16) {
@@ -123,12 +126,12 @@ struct QualityPicker: View {
                 .shadow(color: .black.opacity(0.5), radius: 30, y: 10)
             }
             .transition(.opacity.combined(with: .scale(scale: 0.95)))
-            .animation(.easeOut(duration: 0.2), value: appState.showQualityPicker)
+            .animation(.easeOut(duration: 0.2), value: appState.activeOverlay == .qualityPicker)
         }
     }
 
     private func dismiss() {
-        appState.showQualityPicker = false
+        appState.activeOverlay = .none
     }
 
     private func qualityRow<Content: View>(label: String, isSelected: Bool,

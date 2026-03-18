@@ -7,7 +7,7 @@ struct AudioMixerPanel: View {
     @Environment(SessionManager.self) private var sessionManager
 
     var body: some View {
-        if appState.showAudioMixer {
+        if appState.activeOverlay == .audioMixer {
             VStack(alignment: .leading, spacing: 0) {
                 // Header
                 HStack {
@@ -18,7 +18,7 @@ struct AudioMixerPanel: View {
                         .font(PMuxFonts.heading)
                         .foregroundColor(PMuxColors.Text.primary)
                     Spacer()
-                    Button { appState.showAudioMixer = false } label: {
+                    Button { appState.activeOverlay = .none } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(PMuxColors.Text.tertiary)

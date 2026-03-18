@@ -62,9 +62,14 @@ final class MetalContext {
     let pipelineRGBA: MTLRenderPipelineState
     let pipelineSolid: MTLRenderPipelineState
 
+    enum MetalError: Error, LocalizedError {
+        case metalNotAvailable
+        var errorDescription: String? { "Metal is not available on this device" }
+    }
+
     init() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
-            fatalError("Metal not available")
+            throw MetalError.metalNotAvailable
         }
         self.device = device
         self.commandQueue = device.makeCommandQueue()!

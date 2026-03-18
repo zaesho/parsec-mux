@@ -8,6 +8,75 @@ import SwiftUI
 
 enum ViewMode: Equatable { case single, grid }
 
+enum GridMode: String, CaseIterable, Identifiable {
+    case auto  = "Auto"
+    case g1x2  = "1×2"
+    case g2x1  = "2×1"
+    case g2x2  = "2×2"
+    case g1x3  = "1×3"
+    case g3x1  = "3×1"
+    case g2x3  = "2×3"
+    case g3x3  = "3×3"
+
+    var id: String { rawValue }
+
+    /// Fixed cols/rows, nil for auto
+    var fixedLayout: (cols: Int, rows: Int)? {
+        switch self {
+        case .auto: return nil
+        case .g1x2: return (2, 1)
+        case .g2x1: return (1, 2)
+        case .g2x2: return (2, 2)
+        case .g1x3: return (3, 1)
+        case .g3x1: return (1, 3)
+        case .g2x3: return (3, 2)
+        case .g3x3: return (3, 3)
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .auto: return "rectangle.3.group"
+        case .g1x2: return "rectangle.split.2x1"
+        case .g2x1: return "rectangle.split.1x2"
+        case .g2x2: return "rectangle.split.2x2"
+        case .g1x3: return "rectangle.split.3x1"
+        case .g3x1: return "rectangle.split.1x2"
+        case .g2x3: return "rectangle.split.3x3"
+        case .g3x3: return "rectangle.split.3x3"
+        }
+    }
+
+    /// Resolve actual cols/rows for a given session count.
+    func layout(for count: Int) -> (cols: Int, rows: Int) {
+        if let fixed = fixedLayout { return fixed }
+        // Auto: optimize for widescreen
+        switch count {
+        case 0, 1: return (1, 1)
+        case 2:    return (2, 1)
+        case 3:    return (2, 2)
+        case 4:    return (2, 2)
+        case 5, 6: return (3, 2)
+        case 7...9: return (3, 3)
+        default:   return (3, 3)
+        }
+    }
+}
+
+/// Drag-and-drop transfer type for host peerIDs
+struct HostTransfer: Codable, Transferable {
+    let peerID: String
+    let name: String
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .plainText)
+    }
+}
+
+enum ActiveOverlay: Equatable {
+    case none, qualityPicker, settings, audioMixer
+}
+
 enum HealthState: Int {
     case ok = 0, degraded, bad, lost
     var icon: String {
@@ -60,6 +129,7 @@ final class SessionModel: Identifiable {
     var quality: ParsecClient.Quality
 
     var isFavorite: Bool = true
+    var isRelativeMode: Bool = false
     weak var client: ParsecClient?
     var clientIndex: Int = 0
 
@@ -78,12 +148,12 @@ final class AppState {
     var sessions: [SessionModel] = []
     var activeSessionIndex: Int = 0
     var viewMode: ViewMode = .single
+    var gridMode: GridMode = .auto
     var gridIndices: [Int] = []
 
     var showDebug: Bool = false
     var sidebarVisible: Bool = true
-    var showQualityPicker: Bool = false
-    var showSettings: Bool = false
+    var activeOverlay: ActiveOverlay = .none
     var qualityEditField: QualityField = .resolution
     var qualityEditValue: ParsecClient.Quality = .init()
 
@@ -95,8 +165,7 @@ final class AppState {
     var defaultH265: Bool = false
     var defaultColor444: Bool = false
     var defaultHWDecode: Bool = true
-    var audioEnabled: Bool = false
-    var showAudioMixer: Bool = false
+    var audioEnabled: Bool = true
 
     // Host browser
     var allHosts: [ParsecHost] = []

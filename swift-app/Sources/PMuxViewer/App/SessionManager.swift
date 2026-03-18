@@ -2,6 +2,7 @@
 /// Owns dynamic ParsecClient pool and mutates AppState.
 
 import AppKit
+import SwiftUI
 import CParsecBridge
 
 private let MAX_SESSIONS = 9
@@ -31,7 +32,8 @@ final class SessionManager: InputViewDelegate {
     private(set) var audioMixer: AudioMixer?
 
     private var eventTimer: Timer?
-    private var audioTimer: Timer?
+    private var audioQueue: DispatchQueue?
+    private var audioPolling = false
     private var healthTimer: Timer?
     private var staggerTimer: Timer?
     private var refreshTimer: Timer?
@@ -102,6 +104,13 @@ final class SessionManager: InputViewDelegate {
 
     func startConnections() {
         guard !appState.sessions.isEmpty && !sessionToken.isEmpty else { return }
+
+        // Invalidate existing timers before creating new ones
+        eventTimer?.invalidate()
+        audioPolling = false
+        healthTimer?.invalidate()
+        staggerTimer?.invalidate()
+
         if appState.sessions.count > 0 {
             appState.activeSessionIndex = 0
         }
@@ -113,13 +122,20 @@ final class SessionManager: InputViewDelegate {
 
         // Audio polling at 100Hz (10ms) — needs to be faster than event polling
         // to keep the ring buffer fed without underruns
-        audioTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 100.0, repeats: true) { [weak self] _ in
-            self?.pollAudioForAllSessions()
-        }
+        audioQueue = DispatchQueue(label: "com.pmux.audio-poll", qos: .userInteractive)
+        audioPolling = true
+        audioQueue?.async { [weak self] in self?.audioPollingLoop() }
 
         // Health monitoring — poll metrics every second
         healthTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.checkAllHealth()
+        }
+    }
+
+    private func audioPollingLoop() {
+        while audioPolling {
+            pollAudioForAllSessions()
+            Thread.sleep(forTimeInterval: 0.01) // 100Hz
         }
     }
 
@@ -171,16 +187,17 @@ final class SessionManager: InputViewDelegate {
 
     func shutdown() {
         eventTimer?.invalidate()
-        audioTimer?.invalidate()
+        audioPolling = false
         healthTimer?.invalidate()
         staggerTimer?.invalidate()
         refreshTimer?.invalidate()
-        audioMixer?.stop()
         for session in appState.sessions {
-            if session.isConnected, let client = session.client {
-                client.disconnect()
-            }
+            if session.isConnected, let client = session.client { client.disconnect() }
+            audioMixer?.removeSession(peerID: session.id)
         }
+        audioMixer?.stop()
+        clientPool.removeAll()
+        usedPorts.removeAll()
         print("[pmux] Shutdown complete")
     }
 
@@ -215,6 +232,10 @@ final class SessionManager: InputViewDelegate {
         }
         clientPool.removeValue(forKey: portOffset)
         usedPorts.remove(portOffset)
+        // Find and remove any session using this port from audio
+        for session in appState.sessions where session.clientIndex == portOffset {
+            audioMixer?.removeSession(peerID: session.id)
+        }
         print("[pmux] Released client on port \(13000 + portOffset)")
     }
 
@@ -227,31 +248,39 @@ final class SessionManager: InputViewDelegate {
 
     func fetchHosts() async {
         guard !sessionToken.isEmpty else { return }
-        appState.isLoadingHosts = true
-        appState.hostLoadError = nil
+        await MainActor.run {
+            appState.isLoadingHosts = true
+            appState.hostLoadError = nil
+        }
 
         do {
             let hosts = try await apiClient.fetchHosts(sessionToken: sessionToken)
-            appState.allHosts = hosts
+            await MainActor.run {
+                appState.allHosts = hosts
 
-            // Update online status for existing favorite sessions
-            let hostMap = Dictionary(hosts.map { ($0.peerID, $0) }, uniquingKeysWith: { a, _ in a })
-            for session in appState.sessions {
-                if let host = hostMap[session.id] {
-                    // Update name from API if different
-                    if session.nickname == session.id {
-                        session.nickname = host.name
+                // Update online status for existing favorite sessions
+                let hostMap = Dictionary(hosts.map { ($0.peerID, $0) }, uniquingKeysWith: { a, _ in a })
+                for session in appState.sessions {
+                    if let host = hostMap[session.id] {
+                        // Update name from API if different
+                        if session.nickname == session.id {
+                            session.nickname = host.name
+                        }
                     }
                 }
-            }
 
-            print("[pmux] Fetched \(hosts.count) hosts (\(hosts.filter(\.online).count) online)")
+                print("[pmux] Fetched \(hosts.count) hosts (\(hosts.filter(\.online).count) online)")
+            }
         } catch {
-            appState.hostLoadError = error.localizedDescription
-            print("[pmux] Host fetch failed: \(error)")
+            await MainActor.run {
+                appState.hostLoadError = error.localizedDescription
+                print("[pmux] Host fetch failed: \(error)")
+            }
         }
 
-        appState.isLoadingHosts = false
+        await MainActor.run {
+            appState.isLoadingHosts = false
+        }
     }
 
     private func startHostRefresh() {
@@ -401,7 +430,7 @@ final class SessionManager: InputViewDelegate {
     private func loadAuth() {
         if let token = SessionAuth.getSessionToken() {
             sessionToken = token
-            print("[pmux] Session token: \(sessionToken.prefix(8))...")
+            print("[pmux] Session token loaded")
         } else {
             print("[pmux] No session token found!")
             let alert = NSAlert()
@@ -499,6 +528,10 @@ final class SessionManager: InputViewDelegate {
         if !session.isFavorite {
             releaseClient(portOffset: session.clientIndex)
             appState.sessions.remove(at: index)
+            appState.gridIndices = appState.gridIndices.compactMap { gi in
+                if gi == index { return nil }
+                return gi > index ? gi - 1 : gi
+            }
             if appState.activeSessionIndex >= appState.sessions.count {
                 appState.activeSessionIndex = max(0, appState.sessions.count - 1)
             }
@@ -525,15 +558,14 @@ final class SessionManager: InputViewDelegate {
     // MARK: - Mode Switching
 
     func enterGridMode() {
-        guard appState.viewMode != .grid else { return }
         appState.viewMode = .grid
-
-        var gridIndices: [Int] = []
-        for i in 0..<min(appState.sessions.count, GRID_MAX) {
-            gridIndices.append(i)
+        // If grid is empty, populate with all connected sessions
+        if appState.gridIndices.isEmpty {
+            appState.gridIndices = appState.sessions.enumerated()
+                .filter { $0.element.isConnected }
+                .map { $0.offset }
         }
-        appState.gridIndices = gridIndices
-        print("[pmux] Grid mode: \(gridIndices.count) sessions")
+        print("[pmux] Grid mode: \(appState.gridIndices.count) panes")
         updateAudioVolumes()
     }
 
@@ -548,20 +580,72 @@ final class SessionManager: InputViewDelegate {
         if appState.viewMode == .single { enterGridMode() } else { enterSingleMode() }
     }
 
+    /// Add a session to the grid by index. Auto-enters grid mode if needed.
+    func addToGrid(sessionIndex: Int) {
+        guard sessionIndex >= 0 && sessionIndex < appState.sessions.count else { return }
+        // If in single mode, also add the current active session so we get 2 panes immediately
+        if appState.viewMode == .single {
+            let active = appState.activeSessionIndex
+            if active >= 0 && active < appState.sessions.count && active != sessionIndex {
+                if !appState.gridIndices.contains(active) {
+                    appState.gridIndices.append(active)
+                }
+            }
+            appState.viewMode = .grid
+        }
+        if !appState.gridIndices.contains(sessionIndex) {
+            appState.gridIndices.append(sessionIndex)
+        }
+        // Connect if not already
+        if !appState.sessions[sessionIndex].isConnected && !appState.sessions[sessionIndex].isConnecting {
+            connectSession(index: sessionIndex)
+        }
+        print("[pmux] Added to grid: \(appState.sessions[sessionIndex].nickname) (\(appState.gridIndices.count) panes)")
+        updateAudioVolumes()
+    }
+
+    /// Add a host to the grid by peerID — connects if needed, creates session if needed.
+    func addHostToGrid(peerID: String) {
+        if let idx = appState.sessions.firstIndex(where: { $0.id == peerID }) {
+            addToGrid(sessionIndex: idx)
+        } else {
+            // Connect ad-hoc, then add to grid
+            connectHost(peerID: peerID)
+            if let idx = appState.sessions.firstIndex(where: { $0.id == peerID }) {
+                addToGrid(sessionIndex: idx)
+            }
+        }
+    }
+
+    /// Remove a session from the grid (doesn't disconnect).
+    func removeFromGrid(sessionIndex: Int) {
+        appState.gridIndices.removeAll { $0 == sessionIndex }
+        // If grid is now empty or 1, go to single mode
+        if appState.gridIndices.count <= 1 {
+            if let remaining = appState.gridIndices.first {
+                appState.activeSessionIndex = remaining
+            }
+            appState.gridIndices = []
+            appState.viewMode = .single
+        }
+        updateAudioVolumes()
+    }
+
     // MARK: - Grid Arrow Navigation
 
     private func handleGridArrow(_ direction: ArrowDirection) {
         let gridIndices = appState.gridIndices
+        let cols = appState.gridMode.layout(for: gridIndices.count).cols
         guard let fgi = gridIndices.firstIndex(of: appState.activeSessionIndex) else { return }
 
-        let col = fgi % 2, row = fgi / 2
+        let col = fgi % cols, row = fgi / cols
         var ngi = -1
 
         switch direction {
-        case .left:  if col > 0 { ngi = row * 2 + (col - 1) }
-        case .right: if col < 1 && (row * 2 + col + 1) < gridIndices.count { ngi = row * 2 + (col + 1) }
-        case .up:    if row > 0 { ngi = (row - 1) * 2 + col }
-        case .down:  if row < 1 && ((row + 1) * 2 + col) < gridIndices.count { ngi = (row + 1) * 2 + col }
+        case .left:  if col > 0 { ngi = row * cols + (col - 1) }
+        case .right: if (row * cols + col + 1) < gridIndices.count { ngi = row * cols + (col + 1) }
+        case .up:    if row > 0 { ngi = (row - 1) * cols + col }
+        case .down:  if ((row + 1) * cols + col) < gridIndices.count { ngi = (row + 1) * cols + col }
         }
 
         if ngi >= 0 && ngi < gridIndices.count {
@@ -578,9 +662,11 @@ final class SessionManager: InputViewDelegate {
         appState.sessions[sessionIndex].quality = quality
         print("[pmux] Quality applied: \(quality.h265 ? "H.265" : "H.264") \(quality.color444 ? "4:4:4" : "4:2:0") \(quality.decoderIndex == 1 ? "HW" : "SW")")
 
+        let peerID = appState.sessions[sessionIndex].id
         disconnectSession(index: sessionIndex)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            self?.connectSession(index: sessionIndex)
+            guard let self, let idx = self.appState.sessions.firstIndex(where: { $0.id == peerID }) else { return }
+            self.connectSession(index: idx)
         }
     }
 
@@ -588,7 +674,7 @@ final class SessionManager: InputViewDelegate {
 
     private func handleQualityPickerKey(keyCode: UInt16, characters: String?) {
         switch keyCode {
-        case 0x35: appState.showQualityPicker = false
+        case 0x35: appState.activeOverlay = .none
         case 0x7E:
             if let raw = QualityField(rawValue: appState.qualityEditField.rawValue - 1) {
                 appState.qualityEditField = raw
@@ -617,7 +703,7 @@ final class SessionManager: InputViewDelegate {
             if a >= 0 && a < appState.sessions.count {
                 applyQuality(sessionIndex: a, quality: appState.qualityEditValue)
             }
-            appState.showQualityPicker = false
+            appState.activeOverlay = .none
         default: break
         }
     }
@@ -633,12 +719,16 @@ final class SessionManager: InputViewDelegate {
                     switch event.type {
                     case CLIENT_EVENT_CURSOR:
                         let cursor = event.cursor.cursor
+                        let wantRelative = cursor.relative
+                        print("[cursor] session=\(session.nickname) relative=\(wantRelative) activeInput=\(activeInputView != nil)")
+                        // Store on session model so new InputViews inherit it
+                        session.isRelativeMode = wantRelative
                         if let inputView = activeInputView {
-                            if cursor.relative && !inputView.isRelativeMode {
+                            if wantRelative && !inputView.isRelativeMode {
                                 inputView.isRelativeMode = true
                                 NSCursor.hide()
                                 CGAssociateMouseAndMouseCursorPosition(0)
-                            } else if !cursor.relative && inputView.isRelativeMode {
+                            } else if !wantRelative && inputView.isRelativeMode {
                                 inputView.isRelativeMode = false
                                 CGAssociateMouseAndMouseCursorPosition(1)
                                 NSCursor.unhide()
@@ -647,17 +737,21 @@ final class SessionManager: InputViewDelegate {
 
                     case CLIENT_EVENT_USER_DATA:
                         // Clipboard from remote (user data id 7)
+                        // NOTE: getBuffer/freeBuffer can crash due to malloc zone
+                        // mismatch (SDK dylib vs Swift runtime). Copy data immediately
+                        // and skip freeBuffer — small leak is preferable to crash.
                         if event.userData.id == 7 {
                             if let buf = client.getBuffer(key: event.userData.key) {
                                 let text = String(cString: buf.assumingMemoryBound(to: CChar.self))
                                 if !text.isEmpty {
                                     NSPasteboard.general.clearContents()
                                     NSPasteboard.general.setString(text, forType: .string)
-                                    // Update our change count so we don't echo it back
                                     lastPasteboardCount = NSPasteboard.general.changeCount
                                     print("[pmux] Clipboard received from remote (\(text.count) chars)")
                                 }
-                                client.freeBuffer(buf)
+                                // Skip freeBuffer — crashes under Rosetta and some ARM64
+                                // SDK builds due to malloc zone mismatch.
+                                // client.freeBuffer(buf)
                             }
                         }
 
@@ -769,13 +863,15 @@ final class SessionManager: InputViewDelegate {
             appState.showDebug.toggle()
             print("[pmux] Debug overlay: \(appState.showDebug ? "ON" : "OFF")")
         case .toggleSidebar:
-            appState.sidebarVisible.toggle()
+            withAnimation(.easeInOut(duration: 0.2)) {
+                appState.sidebarVisible.toggle()
+            }
             print("[pmux] Sidebar: \(appState.sidebarVisible ? "ON" : "OFF")")
         case .openQualityPicker:
             if let session = appState.activeSession {
                 appState.qualityEditValue = session.quality
                 appState.qualityEditField = .resolution
-                appState.showQualityPicker = true
+                appState.activeOverlay = .qualityPicker
             }
         case .prevSession:
             guard !appState.sessions.isEmpty else { return }
@@ -802,7 +898,7 @@ final class SessionManager: InputViewDelegate {
     }
 
     func inputViewShouldConsumeKeyForOverlay(_ view: ParsecInputView, keyCode: UInt16, isDown: Bool, characters: String?) -> Bool {
-        if appState.showQualityPicker {
+        if appState.activeOverlay == .qualityPicker {
             if isDown { handleQualityPickerKey(keyCode: keyCode, characters: characters) }
             return true
         }

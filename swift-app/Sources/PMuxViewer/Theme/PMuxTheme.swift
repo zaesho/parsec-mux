@@ -1,4 +1,4 @@
-/// PMuxTheme — Design tokens for the Termius-style dark UI.
+/// PMuxTheme — Slate/graphite design tokens.
 /// Single source of truth for colors, fonts, and spacing.
 
 import SwiftUI
@@ -8,44 +8,46 @@ import AppKit
 
 enum PMuxColors {
     enum BG {
-        static let base     = Color(red: 0.075, green: 0.078, blue: 0.122)  // #13141f
-        static let raised   = Color(red: 0.102, green: 0.106, blue: 0.180)  // #1a1b2e
-        static let surface  = Color(red: 0.145, green: 0.149, blue: 0.251)  // #252640
-        static let elevated = Color(red: 0.180, green: 0.184, blue: 0.290)  // #2e2f4a
+        static let base     = Color(red: 0.098, green: 0.106, blue: 0.118)  // #191b1e
+        static let raised   = Color(red: 0.129, green: 0.137, blue: 0.153)  // #212327
+        static let surface  = Color(red: 0.161, green: 0.173, blue: 0.192)  // #292c31
+        static let elevated = Color(red: 0.200, green: 0.212, blue: 0.235)  // #33363c
     }
 
-    static let accent      = Color(red: 0.125, green: 0.569, blue: 0.965)  // #2091f6
-    static let accentHover = Color(red: 0.231, green: 0.639, blue: 1.000)  // #3ba3ff
+    static let accent      = Color(red: 0.337, green: 0.588, blue: 0.976)  // #5696f9
+    static let accentHover = Color(red: 0.459, green: 0.678, blue: 1.000)  // #75adff
+    static let accentMuted = Color(red: 0.337, green: 0.588, blue: 0.976).opacity(0.15)
 
     enum Border {
-        static let subtle = Color(red: 0.165, green: 0.169, blue: 0.239)    // #2a2b3d
+        static let subtle  = Color(red: 0.220, green: 0.231, blue: 0.255)   // #383b41
+        static let strong  = Color(red: 0.280, green: 0.294, blue: 0.325)   // #474b53
     }
 
     enum Text {
-        static let primary   = Color(red: 0.910, green: 0.914, blue: 0.929) // #e8e9ed
-        static let secondary = Color(red: 0.545, green: 0.553, blue: 0.639) // #8b8da3
-        static let tertiary  = Color(red: 0.353, green: 0.361, blue: 0.447) // #5a5c72
-        static let accent    = Color(red: 0.125, green: 0.569, blue: 0.965) // #2091f6
+        static let primary   = Color(red: 0.922, green: 0.933, blue: 0.953) // #ebeeF3
+        static let secondary = Color(red: 0.580, green: 0.612, blue: 0.663) // #949ca9
+        static let tertiary  = Color(red: 0.380, green: 0.408, blue: 0.455) // #616874
+        static let accent    = Color(red: 0.337, green: 0.588, blue: 0.976) // #5696f9
     }
 
     enum Status {
-        static let ok        = Color(red: 0.204, green: 0.816, blue: 0.345) // #34d058
-        static let degraded  = Color(red: 0.941, green: 0.706, blue: 0.161) // #f0b429
-        static let bad       = Color(red: 0.976, green: 0.451, blue: 0.086) // #f97316
-        static let lost      = Color(red: 0.973, green: 0.318, blue: 0.286) // #f85149
-        static let offline   = Color(red: 0.353, green: 0.361, blue: 0.447) // #5a5c72
+        static let ok        = Color(red: 0.298, green: 0.851, blue: 0.510) // #4cd982
+        static let degraded  = Color(red: 0.976, green: 0.757, blue: 0.290) // #f9c14a
+        static let bad       = Color(red: 0.976, green: 0.522, blue: 0.243) // #f9853e
+        static let lost      = Color(red: 0.949, green: 0.369, blue: 0.369) // #f25e5e
+        static let offline   = Color(red: 0.380, green: 0.408, blue: 0.455) // #616874
     }
 
     // NSColor equivalents for AppKit contexts
     enum NS {
-        static let base = NSColor(red: 0.075, green: 0.078, blue: 0.122, alpha: 1)
+        static let base = NSColor(red: 0.098, green: 0.106, blue: 0.118, alpha: 1)
     }
 }
 
 // MARK: - Fonts
 
 enum PMuxFonts {
-    static let heading     = Font.system(size: 14, weight: .semibold)
+    static let heading     = Font.system(size: 14, weight: .semibold, design: .rounded)
     static let body        = Font.system(size: 13, weight: .regular)
     static let bodyBold    = Font.system(size: 13, weight: .medium)
     static let caption     = Font.system(size: 11, weight: .regular)
@@ -60,14 +62,14 @@ enum PMuxFonts {
 // MARK: - Spacing
 
 enum PMuxSpacing {
-    static let sidebarWidth: CGFloat = 240
-    static let statusBarHeight: CGFloat = 28
-    static let tabBarHeight: CGFloat = 38
+    static let sidebarWidth: CGFloat = 250
+    static let statusBarHeight: CGFloat = 30
+    static let tabBarHeight: CGFloat = 40
     static let cardPadding: CGFloat = 12
-    static let cardRadius: CGFloat = 8
-    static let gridGap: CGFloat = 4
-    static let modalRadius: CGFloat = 12
-    static let statusDotLarge: CGFloat = 10
+    static let cardRadius: CGFloat = 10
+    static let gridGap: CGFloat = 3
+    static let modalRadius: CGFloat = 14
+    static let statusDotLarge: CGFloat = 8
     static let statusDotSmall: CGFloat = 6
-    static let pillRadius: CGFloat = 4
+    static let pillRadius: CGFloat = 5
 }

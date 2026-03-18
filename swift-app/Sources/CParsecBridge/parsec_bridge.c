@@ -156,12 +156,14 @@ int32_t pmux_connect(pmux_handle *handle, const char *session_id, const char *pe
 
 void pmux_disconnect(pmux_handle *handle)
 {
+    if (!handle) return;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     dso->api.ParsecClientDisconnect(dso->ps);
 }
 
 int32_t pmux_get_status(pmux_handle *handle, ParsecClientStatus *out)
 {
+    if (!handle) return -1;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     return (int32_t)dso->api.ParsecClientGetStatus(dso->ps, out);
 }
@@ -169,12 +171,14 @@ int32_t pmux_get_status(pmux_handle *handle, ParsecClientStatus *out)
 int32_t pmux_set_dimensions(pmux_handle *handle, uint8_t stream,
                             uint32_t w, uint32_t h, float scale)
 {
+    if (!handle) return -1;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     return (int32_t)dso->api.ParsecClientSetDimensions(dso->ps, stream, w, h, scale);
 }
 
 int32_t pmux_enable_stream(pmux_handle *handle, uint8_t stream, bool enable)
 {
+    if (!handle) return -1;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     return (int32_t)dso->api.ParsecClientEnableStream(dso->ps, stream, enable);
 }
@@ -183,6 +187,7 @@ int32_t pmux_enable_stream(pmux_handle *handle, uint8_t stream, bool enable)
 
 int32_t pmux_send_keyboard(pmux_handle *handle, uint32_t code, uint16_t mod, bool pressed)
 {
+    if (!handle) return -1;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     ParsecMessage msg = {0};
     msg.type = MESSAGE_KEYBOARD;
@@ -195,6 +200,7 @@ int32_t pmux_send_keyboard(pmux_handle *handle, uint32_t code, uint16_t mod, boo
 int32_t pmux_send_mouse_motion(pmux_handle *handle, int32_t x, int32_t y,
                                bool relative, uint8_t stream)
 {
+    if (!handle) return -1;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     ParsecMessage msg = {0};
     msg.type = MESSAGE_MOUSE_MOTION;
@@ -207,6 +213,7 @@ int32_t pmux_send_mouse_motion(pmux_handle *handle, int32_t x, int32_t y,
 
 int32_t pmux_send_mouse_button(pmux_handle *handle, uint32_t button, bool pressed)
 {
+    if (!handle) return -1;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     ParsecMessage msg = {0};
     msg.type = MESSAGE_MOUSE_BUTTON;
@@ -217,6 +224,7 @@ int32_t pmux_send_mouse_button(pmux_handle *handle, uint32_t button, bool presse
 
 int32_t pmux_send_mouse_wheel(pmux_handle *handle, int32_t x, int32_t y)
 {
+    if (!handle) return -1;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     ParsecMessage msg = {0};
     msg.type = MESSAGE_MOUSE_WHEEL;
@@ -228,6 +236,7 @@ int32_t pmux_send_mouse_wheel(pmux_handle *handle, int32_t x, int32_t y)
 int32_t pmux_send_gamepad_button(pmux_handle *handle, uint32_t pad_id,
                                  uint32_t button, bool pressed)
 {
+    if (!handle) return -1;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     ParsecMessage msg = {0};
     msg.type = MESSAGE_GAMEPAD_BUTTON;
@@ -240,6 +249,7 @@ int32_t pmux_send_gamepad_button(pmux_handle *handle, uint32_t pad_id,
 int32_t pmux_send_gamepad_axis(pmux_handle *handle, uint32_t pad_id,
                                uint32_t axis, int16_t value)
 {
+    if (!handle) return -1;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     ParsecMessage msg = {0};
     msg.type = MESSAGE_GAMEPAD_AXIS;
@@ -251,6 +261,7 @@ int32_t pmux_send_gamepad_axis(pmux_handle *handle, uint32_t pad_id,
 
 int32_t pmux_send_clipboard(pmux_handle *handle, const char *text)
 {
+    if (!handle || !text) return -1;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     return (int32_t)dso->api.ParsecClientSendUserData(dso->ps, 7, text);
 }
@@ -260,6 +271,7 @@ int32_t pmux_send_clipboard(pmux_handle *handle, const char *text)
 int32_t pmux_metal_render(pmux_handle *handle, uint8_t stream,
                           void *cq, void **target, uint32_t timeout)
 {
+    if (!handle) return -1;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     return (int32_t)dso->api.ParsecClientMetalRenderFrame(
         dso->ps, stream, cq, target, NULL, NULL, timeout);
@@ -268,6 +280,7 @@ int32_t pmux_metal_render(pmux_handle *handle, uint8_t stream,
 int32_t pmux_poll_frame(pmux_handle *handle, uint8_t stream,
                         pmux_frame_cb callback, uint32_t timeout, void *opaque)
 {
+    if (!handle) return -1;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     return (int32_t)dso->api.ParsecClientPollFrame(
         dso->ps, stream, (ParsecFrameCallback)callback, timeout, opaque);
@@ -394,6 +407,7 @@ int32_t pmux_gl_direct_render(pmux_handle *handle, uint8_t stream, uint32_t time
 
 void pmux_gl_stream_destroy(pmux_handle *handle, uint8_t stream)
 {
+    if (!handle) return;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     dso->api.ParsecClientGLDestroy(dso->ps, stream);
 }
@@ -403,6 +417,7 @@ void pmux_gl_stream_destroy(pmux_handle *handle, uint8_t stream)
 int32_t pmux_poll_audio(pmux_handle *handle, pmux_audio_cb callback,
                         uint32_t timeout, void *opaque)
 {
+    if (!handle) return -1;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     return (int32_t)dso->api.ParsecClientPollAudio(
         dso->ps, (ParsecAudioCallback)callback, timeout, opaque);
@@ -412,18 +427,21 @@ int32_t pmux_poll_audio(pmux_handle *handle, pmux_audio_cb callback,
 
 bool pmux_poll_events(pmux_handle *handle, uint32_t timeout, ParsecClientEvent *out)
 {
+    if (!handle) return false;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     return dso->api.ParsecClientPollEvents(dso->ps, timeout, out);
 }
 
 void *pmux_get_buffer(pmux_handle *handle, uint32_t key)
 {
+    if (!handle) return NULL;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     return dso->api.ParsecGetBuffer(dso->ps, key);
 }
 
 void pmux_free_buffer(pmux_handle *handle, void *buf)
 {
+    if (!handle || !buf) return;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     dso->api.ParsecFree(dso->ps, buf);
 }
@@ -432,6 +450,7 @@ void pmux_free_buffer(pmux_handle *handle, void *buf)
 
 void pmux_set_log_callback(pmux_handle *handle, pmux_log_cb callback, void *opaque)
 {
+    if (!handle) return;
     ParsecDSO *dso = HANDLE_TO_DSO(handle);
     dso->api.ParsecSetLogCallback((ParsecLogCallback)callback, opaque);
 }

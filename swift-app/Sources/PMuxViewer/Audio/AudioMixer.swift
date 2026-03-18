@@ -1,5 +1,6 @@
 /// AudioMixer — Multi-session audio engine with per-session volume and mix modes.
 /// Uses AVAudioEngine with one AVAudioSourceNode per connected session.
+/// All graph mutations (add/remove session) pause and restart the engine for safety.
 
 import AVFoundation
 import Foundation
@@ -11,15 +12,6 @@ enum AudioMixMode: String, CaseIterable, Identifiable {
     case all     = "All"
 
     var id: String { rawValue }
-
-    var description: String {
-        switch self {
-        case .afv:    return "Audio follows active session"
-        case .grid:   return "Mix all grid sessions"
-        case .manual: return "Manual per-session volume"
-        case .all:    return "All sessions at full volume"
-        }
-    }
 }
 
 @Observable
@@ -29,14 +21,10 @@ final class AudioMixer {
     var masterVolume: Float = 1.0 {
         didSet { engine.mainMixerNode.outputVolume = masterVolume }
     }
-
-    /// Per-session volume (peerID → 0.0-1.0). Used in manual mode.
     var sessionVolumes: [String: Float] = [:]
 
     private let engine = AVAudioEngine()
     private let outputFormat: AVAudioFormat
-
-    // Per-session nodes and buffers
     private var sourceNodes: [String: AVAudioSourceNode] = [:]
     private var mixerNodes: [String: AVAudioMixerNode] = [:]
     private(set) var ringBuffers: [String: AudioRingBuffer] = [:]
@@ -50,8 +38,20 @@ final class AudioMixer {
     func start() {
         guard !isRunning else { return }
         do {
-            try engine.start()
+            // Engine needs at least one connection to start cleanly.
+            // Defer actual start to when the first session is added.
+            // Just mark intent here.
             isRunning = true
+            print("[audio] Engine ready (will start on first session)")
+        } catch {
+            print("[audio] Engine start failed: \(error)")
+        }
+    }
+
+    private func ensureEngineRunning() {
+        guard isRunning && !engine.isRunning else { return }
+        do {
+            try engine.start()
             print("[audio] Engine started")
         } catch {
             print("[audio] Engine start failed: \(error)")
@@ -60,14 +60,15 @@ final class AudioMixer {
 
     func stop() {
         guard isRunning else { return }
-        engine.stop()
+        if engine.isRunning { engine.stop() }
+        // Reset all ring buffers to avoid stale audio on restart
+        for (_, rb) in ringBuffers { rb.reset() }
         isRunning = false
         print("[audio] Engine stopped")
     }
 
     // MARK: - Session Management
 
-    /// Add a session to the audio graph. Returns the ring buffer for poll callback writing.
     func addSession(peerID: String) -> AudioRingBuffer {
         if let existing = ringBuffers[peerID] {
             return existing
@@ -76,43 +77,45 @@ final class AudioMixer {
         let ringBuffer = AudioRingBuffer(capacityFrames: 9600, maxLatencyFrames: 3600)
         ringBuffers[peerID] = ringBuffer
 
-        // Create source node that pulls from ring buffer
         let sourceNode = AVAudioSourceNode(format: outputFormat) {
             [weak ringBuffer] _, _, frameCount, bufferList -> OSStatus in
-
             guard let rb = ringBuffer else { return noErr }
             let ablPointer = UnsafeMutableAudioBufferListPointer(bufferList)
             let frames = Int(frameCount)
-
             guard ablPointer.count >= 2,
                   let leftBuf = ablPointer[0].mData?.assumingMemoryBound(to: Float.self),
                   let rightBuf = ablPointer[1].mData?.assumingMemoryBound(to: Float.self) else {
                 return noErr
             }
-
             let read = rb.read(left: leftBuf, right: rightBuf, frameCount: frames)
-
-            // Zero-fill remaining if we didn't have enough data
             if read < frames {
                 memset(leftBuf.advanced(by: read), 0, (frames - read) * MemoryLayout<Float>.size)
                 memset(rightBuf.advanced(by: read), 0, (frames - read) * MemoryLayout<Float>.size)
             }
-
             return noErr
         }
 
-        // Per-session mixer node for individual volume control
         let mixerNode = AVAudioMixerNode()
+
+        // Pause engine for safe graph mutation
+        let engineWasRunning = engine.isRunning
+        if engineWasRunning { engine.pause() }
 
         engine.attach(sourceNode)
         engine.attach(mixerNode)
         engine.connect(sourceNode, to: mixerNode, format: outputFormat)
         engine.connect(mixerNode, to: engine.mainMixerNode, format: outputFormat)
 
+        if engineWasRunning {
+            try? engine.start()
+        } else {
+            // First session — start the engine now that we have nodes
+            ensureEngineRunning()
+        }
+
         sourceNodes[peerID] = sourceNode
         mixerNodes[peerID] = mixerNode
 
-        // Default volume
         if sessionVolumes[peerID] == nil {
             sessionVolumes[peerID] = 1.0
         }
@@ -121,8 +124,11 @@ final class AudioMixer {
         return ringBuffer
     }
 
-    /// Remove a session from the audio graph.
     func removeSession(peerID: String) {
+        // Pause engine for safe graph mutation
+        let wasRunning = isRunning
+        if wasRunning { engine.pause() }
+
         if let sourceNode = sourceNodes.removeValue(forKey: peerID) {
             engine.disconnectNodeOutput(sourceNode)
             engine.detach(sourceNode)
@@ -131,19 +137,22 @@ final class AudioMixer {
             engine.disconnectNodeOutput(mixerNode)
             engine.detach(mixerNode)
         }
+
+        if wasRunning {
+            try? engine.start()
+        }
+
         ringBuffers.removeValue(forKey: peerID)
         sessionVolumes.removeValue(forKey: peerID)
         print("[audio] Removed session: \(peerID.prefix(8))")
     }
 
-    /// Get ring buffer for a session (for polling).
     func ringBuffer(for peerID: String) -> AudioRingBuffer? {
         ringBuffers[peerID]
     }
 
     // MARK: - Volume / Mix Mode
 
-    /// Update per-session volumes based on current mix mode and active/grid state.
     func updateVolumes(activeSessionID: String?, gridSessionIDs: Set<String>,
                         allSessions: [SessionModel]) {
         for session in allSessions {
@@ -152,25 +161,16 @@ final class AudioMixer {
 
             let targetVolume: Float
             switch mixMode {
-            case .afv:
-                targetVolume = (peerID == activeSessionID) ? 1.0 : 0.0
-
-            case .grid:
-                targetVolume = gridSessionIDs.contains(peerID) ? 1.0 : 0.0
-
-            case .manual:
-                targetVolume = sessionVolumes[peerID] ?? 1.0
-
-            case .all:
-                targetVolume = 1.0
+            case .afv:   targetVolume = (peerID == activeSessionID) ? 1.0 : 0.0
+            case .grid:  targetVolume = gridSessionIDs.contains(peerID) ? 1.0 : 0.0
+            case .manual: targetVolume = sessionVolumes[peerID] ?? 1.0
+            case .all:   targetVolume = 1.0
             }
 
-            // Ramp volume to avoid clicks (10ms ramp)
             mixer.outputVolume = targetVolume
         }
     }
 
-    /// Set volume for a specific session (manual mode).
     func setSessionVolume(peerID: String, volume: Float) {
         sessionVolumes[peerID] = volume
         if mixMode == .manual, let mixer = mixerNodes[peerID] {

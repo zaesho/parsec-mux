@@ -9,8 +9,12 @@ struct SessionSidebar: View {
     var body: some View {
         VStack(spacing: 0) {
             // Title area
-            HStack {
-                Text("PMux")
+            HStack(spacing: 10) {
+                Image(systemName: "square.grid.2x2")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(PMuxColors.accent)
+
+                Text("pmux")
                     .font(PMuxFonts.heading)
                     .foregroundColor(PMuxColors.Text.primary)
 
@@ -21,14 +25,26 @@ struct SessionSidebar: View {
                     bg: PMuxColors.BG.surface,
                     fg: PMuxColors.Text.secondary
                 )
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        appState.sidebarVisible = false
+                    }
+                } label: {
+                    Image(systemName: "sidebar.left")
+                        .font(.system(size: 12))
+                        .foregroundColor(PMuxColors.Text.tertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Collapse sidebar (⌘⇧S)")
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, 14)
 
             // Search field
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
+                    .font(.system(size: 11))
                     .foregroundColor(PMuxColors.Text.tertiary)
 
                 TextField("Search hosts...", text: Binding(
@@ -44,20 +60,20 @@ struct SessionSidebar: View {
                         appState.sidebarSearch = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
+                            .font(.system(size: 11))
                             .foregroundColor(PMuxColors.Text.tertiary)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(PMuxColors.BG.surface)
             )
             .padding(.horizontal, 12)
-            .padding(.bottom, 8)
+            .padding(.bottom, 10)
 
             PMuxDivider()
 
@@ -65,33 +81,34 @@ struct SessionSidebar: View {
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 0) {
                     // FAVORITES section
-                    sectionHeader(title: "FAVORITES", count: appState.filteredFavorites.count)
+                    sectionHeader(title: "FAVORITES", icon: "star.fill", count: appState.filteredFavorites.count)
 
                     if appState.filteredFavorites.isEmpty {
                         emptyFavorites
                     } else {
-                        LazyVStack(spacing: 4) {
+                        LazyVStack(spacing: 3) {
                             ForEach(appState.filteredFavorites) { session in
-                                let index = appState.sessions.firstIndex(where: { $0.id == session.id }) ?? 0
-                                SessionSidebarRow(
-                                    session: session,
-                                    isActive: index == appState.activeSessionIndex,
-                                    onSelect: {
-                                        sessionManager.switchToSession(index: index)
-                                    },
-                                    onConnect: {
-                                        sessionManager.connectSession(index: index)
-                                    },
-                                    onDisconnect: {
-                                        sessionManager.disconnectSession(index: index)
-                                    },
-                                    onToggleFavorite: {
-                                        sessionManager.removeFromFavorites(peerID: session.id)
-                                    },
-                                    onAssignSlot: { slot in
-                                        sessionManager.assignSlot(peerID: session.id, newSlot: slot)
-                                    }
-                                )
+                                if let index = appState.sessions.firstIndex(where: { $0.id == session.id }) {
+                                    SessionSidebarRow(
+                                        session: session,
+                                        isActive: index == appState.activeSessionIndex,
+                                        onSelect: {
+                                            sessionManager.switchToSession(index: index)
+                                        },
+                                        onConnect: {
+                                            sessionManager.connectSession(index: index)
+                                        },
+                                        onDisconnect: {
+                                            sessionManager.disconnectSession(index: index)
+                                        },
+                                        onToggleFavorite: {
+                                            sessionManager.removeFromFavorites(peerID: session.id)
+                                        },
+                                        onAssignSlot: { slot in
+                                            sessionManager.assignSlot(peerID: session.id, newSlot: slot)
+                                        }
+                                    )
+                                }
                             }
                         }
                         .padding(.horizontal, 8)
@@ -99,7 +116,7 @@ struct SessionSidebar: View {
 
                     // AVAILABLE section
                     HStack {
-                        sectionHeader(title: "AVAILABLE", count: appState.availableHosts.count)
+                        sectionHeader(title: "AVAILABLE", icon: "globe", count: appState.availableHosts.count)
                         Spacer()
 
                         if appState.isLoadingHosts {
@@ -120,10 +137,10 @@ struct SessionSidebar: View {
                             .help("Refresh hosts")
                         }
                     }
-                    .padding(.top, 8)
+                    .padding(.top, 6)
 
                     if let error = appState.hostLoadError {
-                        Text(error)
+                        Label(error, systemImage: "exclamationmark.triangle")
                             .font(PMuxFonts.caption)
                             .foregroundColor(PMuxColors.Status.lost)
                             .padding(.horizontal, 16)
@@ -131,13 +148,18 @@ struct SessionSidebar: View {
                     }
 
                     if appState.availableHosts.isEmpty && !appState.isLoadingHosts {
-                        Text("No other hosts found")
-                            .font(PMuxFonts.caption)
-                            .foregroundColor(PMuxColors.Text.tertiary)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
+                        HStack(spacing: 6) {
+                            Image(systemName: "desktopcomputer.trianglebadge.exclamationmark")
+                                .font(.system(size: 11))
+                                .foregroundColor(PMuxColors.Text.tertiary)
+                            Text("No other hosts found")
+                                .font(PMuxFonts.caption)
+                                .foregroundColor(PMuxColors.Text.tertiary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
                     } else {
-                        LazyVStack(spacing: 4) {
+                        LazyVStack(spacing: 3) {
                             ForEach(appState.availableHosts) { host in
                                 HostBrowserRow(
                                     host: host,
@@ -157,38 +179,71 @@ struct SessionSidebar: View {
             }
 
             Spacer(minLength: 0)
-
             PMuxDivider()
 
-            // Footer
+            // Footer toolbar
             HStack(spacing: 12) {
-                Button {
-                    sessionManager.toggleGrid()
+                // View mode: click toggles grid, menu picks layout
+                Menu {
+                    Button {
+                        if appState.viewMode == .grid {
+                            sessionManager.enterSingleMode()
+                        } else {
+                            sessionManager.enterGridMode()
+                        }
+                    } label: {
+                        Label(appState.viewMode == .grid ? "Single Mode" : "Grid Mode",
+                              systemImage: appState.viewMode == .grid ? "rectangle" : "square.grid.2x2")
+                    }
+
+                    Divider()
+
+                    ForEach(GridMode.allCases) { mode in
+                        Button {
+                            appState.gridMode = mode
+                            if appState.viewMode != .grid {
+                                sessionManager.enterGridMode()
+                            }
+                        } label: {
+                            HStack {
+                                Label(mode.rawValue, systemImage: mode.icon)
+                                if mode == appState.gridMode {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
                 } label: {
-                    Image(systemName: appState.viewMode == .grid ? "square.grid.2x2.fill" : "square.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(PMuxColors.Text.secondary)
+                    HStack(spacing: 4) {
+                        Image(systemName: appState.viewMode == .grid ? "square.grid.2x2.fill" : "rectangle")
+                            .font(.system(size: 12))
+                        if appState.viewMode == .grid {
+                            Text(appState.gridMode.rawValue)
+                                .font(PMuxFonts.metricSmall)
+                        }
+                    }
+                    .foregroundColor(appState.viewMode == .grid ? PMuxColors.accent : PMuxColors.Text.secondary)
                 }
                 .buttonStyle(.plain)
-                .help(appState.viewMode == .grid ? "Single mode" : "Grid mode")
+                .help("Grid layout")
 
                 Spacer()
 
                 Button {
-                    appState.showAudioMixer.toggle()
+                    appState.activeOverlay = appState.activeOverlay == .audioMixer ? .none : .audioMixer
                 } label: {
-                    Image(systemName: appState.audioEnabled ? "speaker.wave.2" : "speaker.slash")
-                        .font(.system(size: 13))
+                    Image(systemName: appState.audioEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                        .font(.system(size: 12))
                         .foregroundColor(appState.audioEnabled ? PMuxColors.accent : PMuxColors.Text.tertiary)
                 }
                 .buttonStyle(.plain)
                 .help("Audio Mixer")
 
                 Button {
-                    appState.showSettings = true
+                    appState.activeOverlay = .settings
                 } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 13))
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 12))
                         .foregroundColor(PMuxColors.Text.secondary)
                 }
                 .buttonStyle(.plain)
@@ -206,12 +261,16 @@ struct SessionSidebar: View {
         appState.sessions.filter(\.isConnected).count
     }
 
-    private func sectionHeader(title: String, count: Int) -> some View {
-        HStack {
+    private func sectionHeader(title: String, icon: String, count: Int) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+                .foregroundColor(PMuxColors.Text.tertiary)
+
             Text(title)
                 .font(PMuxFonts.caption)
                 .foregroundColor(PMuxColors.Text.tertiary)
-                .tracking(1.2)
+                .tracking(0.8)
 
             Spacer()
 
@@ -225,15 +284,18 @@ struct SessionSidebar: View {
     }
 
     private var emptyFavorites: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 6) {
+            Image(systemName: "star")
+                .font(.system(size: 18, weight: .light))
+                .foregroundColor(PMuxColors.Text.tertiary)
             Text("No favorites yet")
                 .font(PMuxFonts.caption)
                 .foregroundColor(PMuxColors.Text.tertiary)
             Text("Star a host below to add it")
                 .font(PMuxFonts.metricSmall)
-                .foregroundColor(PMuxColors.Text.tertiary.opacity(0.7))
+                .foregroundColor(PMuxColors.Text.tertiary.opacity(0.6))
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
+        .padding(.vertical, 16)
     }
 }

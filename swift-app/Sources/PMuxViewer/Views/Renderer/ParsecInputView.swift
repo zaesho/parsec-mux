@@ -52,6 +52,8 @@ class ParsecInputView: NSView {
     weak var parsecClient: ParsecClient?
     weak var inputDelegate: InputViewDelegate?
     var isRelativeMode = false
+    /// Called when the user clicks in this pane — used for grid focus switching
+    var onMouseDown: (() -> Void)?
 
     /// After a combo fires, suppress modifier keyup events for 200ms
     private var comboEndTime: CFAbsoluteTime = 0
@@ -234,7 +236,14 @@ class ParsecInputView: NSView {
 
     // MARK: - Mouse Motion
 
-    override func mouseMoved(with event: NSEvent) { sendMotion(event) }
+    private var moveLogCount = 0
+    override func mouseMoved(with event: NSEvent) {
+        moveLogCount += 1
+        if moveLogCount % 120 == 1 {
+            print("[mouse] moved fr=\(window?.firstResponder === self) bounds=\(Int(bounds.width))x\(Int(bounds.height)) client=\(parsecClient != nil)")
+        }
+        sendMotion(event)
+    }
     override func mouseDragged(with event: NSEvent) { sendMotion(event) }
     override func rightMouseDragged(with event: NSEvent) { sendMotion(event) }
     override func otherMouseDragged(with event: NSEvent) { sendMotion(event) }
@@ -246,16 +255,19 @@ class ParsecInputView: NSView {
             return
         }
 
-        // Per-pane MTKView: raw view coords, setDimensions matches this view's size
+        // Per-pane: local coords clamped to view bounds
         let loc = convert(event.locationInWindow, from: nil)
-        let x = Int32(loc.x)
-        let y = Int32(self.bounds.height - loc.y)
+        let bw = Int32(max(1, self.bounds.width))
+        let bh = Int32(max(1, self.bounds.height))
+        let x = max(0, min(Int32(loc.x), bw - 1))
+        let y = max(0, min(Int32(self.bounds.height - loc.y), bh - 1))
         client.sendMouseMotion(x: x, y: y, relative: false)
     }
 
     // MARK: - Mouse Buttons
 
     override func mouseDown(with event: NSEvent) {
+        onMouseDown?()
         parsecClient?.sendMouseButton(button: 1, pressed: true)
     }
     override func mouseUp(with event: NSEvent) {
@@ -268,10 +280,12 @@ class ParsecInputView: NSView {
         parsecClient?.sendMouseButton(button: 3, pressed: false)
     }
     override func otherMouseDown(with event: NSEvent) {
-        parsecClient?.sendMouseButton(button: 2, pressed: true)
+        let button: UInt32 = event.buttonNumber == 2 ? 2 : (event.buttonNumber == 3 ? 4 : 5)
+        parsecClient?.sendMouseButton(button: button, pressed: true)
     }
     override func otherMouseUp(with event: NSEvent) {
-        parsecClient?.sendMouseButton(button: 2, pressed: false)
+        let button: UInt32 = event.buttonNumber == 2 ? 2 : (event.buttonNumber == 3 ? 4 : 5)
+        parsecClient?.sendMouseButton(button: button, pressed: false)
     }
 
     // MARK: - Scroll

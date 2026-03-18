@@ -1,4 +1,4 @@
-/// StatusBar — Bottom bar with segmented metrics and vertical dividers.
+/// StatusBar — Bottom bar with segmented metrics.
 
 import SwiftUI
 
@@ -9,9 +9,11 @@ struct StatusBar: View {
         HStack(spacing: 0) {
             if let session = appState.activeSession {
                 // Status
-                HStack(spacing: 6) {
-                    StatusDot(state: dotState(session), size: PMuxSpacing.statusDotSmall)
-                    Text(session.isConnected ? "Connected" : session.isConnecting ? "Connecting..." : "Disconnected")
+                HStack(spacing: 5) {
+                    Image(systemName: statusIcon(session))
+                        .font(.system(size: 9))
+                        .foregroundColor(statusColor(session))
+                    Text(statusLabel(session))
                         .font(PMuxFonts.caption)
                         .foregroundColor(PMuxColors.Text.secondary)
                 }
@@ -20,52 +22,63 @@ struct StatusBar: View {
                 if session.isConnected {
                     PMuxDivider(vertical: true, height: 14)
 
-                    // Latency
                     HStack(spacing: 4) {
-                        Image(systemName: "network")
-                            .font(.system(size: 9))
+                        Image(systemName: "wifi")
+                            .font(.system(size: 8))
                             .foregroundColor(PMuxColors.Text.tertiary)
                         Text("\(Int(session.latency))ms")
                             .font(PMuxFonts.metric)
                             .foregroundColor(session.health.color)
                     }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 10)
 
                     PMuxDivider(vertical: true, height: 14)
 
-                    // Bitrate
                     HStack(spacing: 4) {
-                        Image(systemName: "arrow.down.circle")
-                            .font(.system(size: 9))
+                        Image(systemName: "arrow.down")
+                            .font(.system(size: 8))
                             .foregroundColor(PMuxColors.Text.tertiary)
                         Text(String(format: "%.1f Mbps", session.bitrate))
                             .font(PMuxFonts.metric)
                             .foregroundColor(PMuxColors.Text.accent)
                     }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 10)
 
                     PMuxDivider(vertical: true, height: 14)
 
-                    // Codec
-                    Text(codecLabel(session.quality))
-                        .font(PMuxFonts.metric)
-                        .foregroundColor(PMuxColors.Text.tertiary)
-                        .padding(.horizontal, 12)
+                    HStack(spacing: 4) {
+                        Image(systemName: "film")
+                            .font(.system(size: 8))
+                            .foregroundColor(PMuxColors.Text.tertiary)
+                        Text(codecLabel(session.quality))
+                            .font(PMuxFonts.metric)
+                            .foregroundColor(PMuxColors.Text.tertiary)
+                    }
+                    .padding(.horizontal, 10)
                 }
             } else {
-                Text("No session")
-                    .font(PMuxFonts.caption)
-                    .foregroundColor(PMuxColors.Text.tertiary)
-                    .padding(.horizontal, 12)
+                HStack(spacing: 5) {
+                    Image(systemName: "display")
+                        .font(.system(size: 9))
+                        .foregroundColor(PMuxColors.Text.tertiary)
+                    Text("No session")
+                        .font(PMuxFonts.caption)
+                        .foregroundColor(PMuxColors.Text.tertiary)
+                }
+                .padding(.horizontal, 12)
             }
 
             Spacer()
 
-            // Mode
-            Text(appState.viewMode == .grid ? "Grid" : "Single")
-                .font(PMuxFonts.caption)
-                .foregroundColor(PMuxColors.Text.tertiary)
-                .padding(.horizontal, 12)
+            HStack(spacing: 5) {
+                Image(systemName: appState.viewMode == .grid ? "square.grid.2x2" : "rectangle")
+                    .font(.system(size: 9))
+                    .foregroundColor(PMuxColors.Text.tertiary)
+                Text(appState.viewMode == .grid ? "Grid" : "Single")
+                    .font(PMuxFonts.caption)
+                    .foregroundColor(PMuxColors.Text.tertiary)
+            }
+            .padding(.horizontal, 12)
         }
         .frame(height: PMuxSpacing.statusBarHeight)
         .background(PMuxColors.BG.surface)
@@ -76,10 +89,27 @@ struct StatusBar: View {
         }
     }
 
-    private func dotState(_ session: SessionModel) -> StatusDot.StatusDotState {
-        if session.isConnecting { return .connecting }
-        if !session.isConnected { return .offline }
-        return session.health.dotState
+    private func statusIcon(_ session: SessionModel) -> String {
+        if session.isConnecting { return "arrow.triangle.2.circlepath" }
+        if !session.isConnected { return "bolt.slash" }
+        switch session.health {
+        case .ok:       return "checkmark.circle.fill"
+        case .degraded: return "exclamationmark.circle"
+        case .bad:      return "exclamationmark.triangle"
+        case .lost:     return "xmark.circle"
+        }
+    }
+
+    private func statusColor(_ session: SessionModel) -> Color {
+        if session.isConnecting { return PMuxColors.Status.degraded }
+        if !session.isConnected { return PMuxColors.Status.offline }
+        return session.health.color
+    }
+
+    private func statusLabel(_ session: SessionModel) -> String {
+        if session.isConnecting { return "Connecting..." }
+        if !session.isConnected { return "Disconnected" }
+        return session.nickname
     }
 
     private func codecLabel(_ q: ParsecClient.Quality) -> String {

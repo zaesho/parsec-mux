@@ -30,7 +30,7 @@ final class SingleStreamMTKView: MTKView, MTKViewDelegate {
         self.metalContext = context
         self.device = context.device
         colorPixelFormat = .bgra8Unorm
-        clearColor = MTLClearColor(red: 0.075, green: 0.078, blue: 0.122, alpha: 1)
+        clearColor = MTLClearColor(red: 0.098, green: 0.106, blue: 0.118, alpha: 1)
         isPaused = false
         enableSetNeedsDisplay = false
         preferredFramesPerSecond = 60
@@ -51,6 +51,7 @@ final class SingleStreamMTKView: MTKView, MTKViewDelegate {
         let w = bounds.size.width, h = bounds.size.height
         guard w > 0 && h > 0 else { return }
         let scale = window?.backingScaleFactor ?? 2.0
+        print("[dim] setDimensions \(Int(w))x\(Int(h)) scale=\(scale)")
         client.setDimensions(width: UInt32(w), height: UInt32(h), scale: Float(scale))
     }
 
@@ -189,7 +190,7 @@ final class SingleStreamMTKView: MTKView, MTKViewDelegate {
     /// Calculate letterboxed rect preserving stream aspect ratio within clip space (-1..1)
     private func aspectFitRect(streamW: Int, streamH: Int,
                                 viewW: Float, viewH: Float) -> (x0: Float, y0: Float, x1: Float, y1: Float) {
-        guard streamW > 0 && streamH > 0 else { return (-1, -1, 1, 1) }
+        guard streamW > 0 && streamH > 0 && viewW > 0 && viewH > 0 else { return (-1, -1, 1, 1) }
 
         let streamAR = Float(streamW) / Float(streamH)
         let viewAR = viewW / viewH

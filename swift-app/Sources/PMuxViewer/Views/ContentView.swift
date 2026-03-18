@@ -1,17 +1,16 @@
-/// ContentView — Root view with custom HStack layout (no NavigationSplitView).
-/// Dark themed with sidebar, tab bar, render area, and status bar.
+/// ContentView — Root view with adaptive grid and drag-to-add.
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Environment(AppState.self) private var appState
     @Environment(SessionManager.self) private var sessionManager
+    @State private var isDropTargeted = false
 
     var body: some View {
         ZStack {
-            // Main layout
             HStack(spacing: 0) {
-                // Sidebar
                 if appState.sidebarVisible {
                     SessionSidebar()
                         .frame(width: PMuxSpacing.sidebarWidth)
@@ -22,13 +21,28 @@ struct ContentView: View {
                         .frame(width: 1)
                 }
 
-                // Content area
                 VStack(spacing: 0) {
-                    // Draggable title bar area + tab bar combined
-                    SessionTabBar()
+                    SessionTabBar(showSidebarToggle: !appState.sidebarVisible)
 
                     renderArea
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .overlay {
+                            if isDropTargeted {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(PMuxColors.accent, lineWidth: 2)
+                                    .background(PMuxColors.accent.opacity(0.05))
+                                    .padding(4)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                        .dropDestination(for: String.self) { items, _ in
+                            for peerID in items {
+                                sessionManager.addHostToGrid(peerID: peerID)
+                            }
+                            return !items.isEmpty
+                        } isTargeted: { targeted in
+                            isDropTargeted = targeted
+                        }
 
                     StatusBar()
                 }
@@ -46,7 +60,6 @@ struct ContentView: View {
                 Spacer()
             }
 
-            // Audio mixer (bottom-right)
             VStack {
                 Spacer()
                 HStack {
@@ -73,6 +86,9 @@ struct ContentView: View {
     private var renderArea: some View {
         if appState.viewMode == .grid && appState.gridIndices.count > 1 {
             gridView
+        } else if appState.gridIndices.count == 1, let idx = appState.gridIndices.first {
+            // Single pane in grid mode — show it full
+            gridCell(idx)
         } else {
             singleView
         }
@@ -88,6 +104,7 @@ struct ContentView: View {
                 client: session.client,
                 metalContext: sessionManager.metalContext,
                 isActive: true,
+                isRelativeMode: session.isRelativeMode,
                 inputDelegate: sessionManager,
                 onInputViewReady: { inputView in
                     sessionManager.activeInputView = inputView
@@ -101,18 +118,32 @@ struct ContentView: View {
     @ViewBuilder
     private var gridView: some View {
         let indices = appState.gridIndices
+        let sizing = appState.gridMode.layout(for: indices.count)
         let gap = PMuxSpacing.gridGap
 
         VStack(spacing: gap) {
-            // Top row
-            HStack(spacing: gap) {
-                if indices.count > 0 { gridCell(indices[0]) }
-                if indices.count > 1 { gridCell(indices[1]) }
-            }
-            // Bottom row
-            HStack(spacing: gap) {
-                if indices.count > 2 { gridCell(indices[2]) }
-                if indices.count > 3 { gridCell(indices[3]) }
+            ForEach(0..<sizing.rows, id: \.self) { row in
+                HStack(spacing: gap) {
+                    ForEach(0..<sizing.cols, id: \.self) { col in
+                        let cellIndex = row * sizing.cols + col
+                        if cellIndex < indices.count {
+                            gridCell(indices[cellIndex])
+                        } else {
+                            // Empty slot
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(PMuxColors.BG.surface.opacity(0.2))
+                                .overlay(
+                                    VStack(spacing: 4) {
+                                        Image(systemName: "plus.circle")
+                                            .font(.system(size: 18, weight: .ultraLight))
+                                        Text("Drag host here")
+                                            .font(PMuxFonts.metricSmall)
+                                    }
+                                    .foregroundColor(PMuxColors.Text.tertiary.opacity(0.3))
+                                )
+                        }
+                    }
+                }
             }
         }
         .padding(gap)
@@ -129,20 +160,35 @@ struct ContentView: View {
                 client: session.client,
                 metalContext: sessionManager.metalContext,
                 isActive: isActive,
+                isRelativeMode: session.isRelativeMode,
                 inputDelegate: sessionManager,
                 onInputViewReady: { inputView in
-                    if isActive {
+                    if idx == appState.activeSessionIndex {
                         sessionManager.activeInputView = inputView
+                    }
+                },
+                onPaneClicked: {
+                    if idx != appState.activeSessionIndex {
+                        sessionManager.switchToSession(index: idx)
                     }
                 }
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 2)
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .stroke(isActive ? PMuxColors.accent : Color.clear, lineWidth: 2)
             )
             .opacity(isActive ? 1.0 : 0.85)
-            .onTapGesture {
-                sessionManager.switchToSession(index: idx)
+            .contextMenu {
+                Button {
+                    sessionManager.removeFromGrid(sessionIndex: idx)
+                } label: {
+                    Label("Remove from Grid", systemImage: "minus.circle")
+                }
+                Button {
+                    sessionManager.disconnectSession(index: idx)
+                } label: {
+                    Label("Disconnect", systemImage: "bolt.slash")
+                }
             }
         } else {
             Rectangle()
@@ -158,7 +204,7 @@ struct ContentView: View {
             Text("No session selected")
                 .font(PMuxFonts.body)
                 .foregroundColor(PMuxColors.Text.tertiary)
-            Text("Press F1–F8 to connect")
+            Text("Drag a host here or press F1–F8")
                 .font(PMuxFonts.caption)
                 .foregroundColor(PMuxColors.Text.tertiary.opacity(0.6))
         }

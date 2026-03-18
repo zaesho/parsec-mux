@@ -93,9 +93,18 @@ enum PMuxButtonVariant {
 
 struct PMuxButtonStyle: ButtonStyle {
     let variant: PMuxButtonVariant
-    @State private var isHovered = false
 
     func makeBody(configuration: Configuration) -> some View {
+        PMuxButtonBody(variant: variant, configuration: configuration)
+    }
+}
+
+private struct PMuxButtonBody: View {
+    let variant: PMuxButtonVariant
+    let configuration: ButtonStyle.Configuration
+    @State private var isHovered = false
+
+    var body: some View {
         configuration.label
             .font(PMuxFonts.bodyBold)
             .foregroundColor(variant == .accent ? .white : PMuxColors.Text.primary)
@@ -110,12 +119,8 @@ struct PMuxButtonStyle: ButtonStyle {
     }
 
     private func bgColor(pressed: Bool) -> Color {
-        if pressed {
-            return variant == .accent ? PMuxColors.accent.opacity(0.8) : PMuxColors.BG.elevated
-        }
-        if isHovered {
-            return variant == .accent ? PMuxColors.accentHover : PMuxColors.BG.elevated
-        }
+        if pressed { return variant == .accent ? PMuxColors.accent.opacity(0.8) : PMuxColors.BG.elevated }
+        if isHovered { return variant == .accent ? PMuxColors.accentHover : PMuxColors.BG.elevated }
         return variant == .accent ? PMuxColors.accent : PMuxColors.BG.surface
     }
 }
@@ -130,7 +135,7 @@ struct PMuxSegmentedControl: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(0..<items.count, id: \.self) { i in
+            ForEach(Array(items.enumerated()), id: \.offset) { i, _ in
                 SwiftUI.Text(items[i])
                     .font(PMuxFonts.captionBold)
                     .foregroundColor(i == selectedIndex ? .white : PMuxColors.Text.secondary)

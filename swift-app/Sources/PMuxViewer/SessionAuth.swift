@@ -116,11 +116,10 @@ enum SessionAuth {
             try process.run()
             inputPipe.fileHandleForWriting.write(blobData)
             inputPipe.fileHandleForWriting.closeFile()
+            let xmlData = outputPipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
 
             guard process.terminationStatus == 0 else { return nil }
-
-            let xmlData = outputPipe.fileHandleForReading.readDataToEndOfFile()
             let xmlText = String(data: xmlData, encoding: .utf8) ?? ""
 
             // Extract Bearer token (40+ hex chars)

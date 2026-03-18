@@ -7,11 +7,15 @@ struct SettingsPane: View {
     @Environment(SessionManager.self) private var sessionManager
 
     var body: some View {
-        if appState.showSettings {
+        if appState.activeOverlay == .settings {
             ZStack {
-                Color.black.opacity(0.4)
+                // Backdrop — blocks all input to views underneath
+                Rectangle()
+                    .fill(Color.black.opacity(0.4))
                     .ignoresSafeArea()
-                    .onTapGesture { appState.showSettings = false }
+                    .contentShape(Rectangle())
+                    .onTapGesture { appState.activeOverlay = .none }
+                    .allowsHitTesting(true)
 
                 VStack(spacing: 0) {
                     // Header
@@ -20,7 +24,7 @@ struct SettingsPane: View {
                             .font(PMuxFonts.heading)
                             .foregroundColor(PMuxColors.Text.primary)
                         Spacer()
-                        Button { appState.showSettings = false } label: {
+                        Button { appState.activeOverlay = .none } label: {
                             Image(systemName: "xmark")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(PMuxColors.Text.secondary)
@@ -158,7 +162,7 @@ struct SettingsPane: View {
                 .shadow(color: .black.opacity(0.5), radius: 30, y: 10)
             }
             .transition(.opacity.combined(with: .scale(scale: 0.95)))
-            .animation(.easeOut(duration: 0.2), value: appState.showSettings)
+            .animation(.easeOut(duration: 0.2), value: appState.activeOverlay == .settings)
         }
     }
 

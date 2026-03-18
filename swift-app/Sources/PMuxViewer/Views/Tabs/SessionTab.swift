@@ -1,4 +1,4 @@
-/// SessionTab — Individual tab with accent bottom bar, hover states, hover close button.
+/// SessionTab — Individual tab with accent indicator and hover states.
 
 import SwiftUI
 
@@ -9,12 +9,13 @@ struct SessionTab: View {
     let onClose: () -> Void
 
     @State private var isHovered = false
-    @State private var isCloseHovered = false
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                StatusDot(state: dotState, size: PMuxSpacing.statusDotSmall)
+            HStack(spacing: 7) {
+                Image(systemName: statusIcon)
+                    .font(.system(size: 8))
+                    .foregroundColor(statusColor)
 
                 Text(session.nickname)
                     .font(isActive ? PMuxFonts.tabActive : PMuxFonts.tabInactive)
@@ -26,47 +27,54 @@ struct SessionTab: View {
                         onClose()
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(.system(size: 7, weight: .bold))
                             .foregroundColor(PMuxColors.Text.tertiary)
-                            .frame(width: 16, height: 16)
+                            .frame(width: 14, height: 14)
                             .background(
-                                Circle()
-                                    .fill(isCloseHovered ? PMuxColors.BG.elevated : Color.clear)
+                                Circle().fill(isHovered ? PMuxColors.BG.elevated : Color.clear)
                             )
                     }
                     .buttonStyle(.plain)
-                    .onHover { isCloseHovered = $0 }
                     .transition(.opacity)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(tabBackground)
             )
 
-            // Active accent bottom bar
-            Rectangle()
+            // Active accent bar
+            Capsule()
                 .fill(isActive ? PMuxColors.accent : Color.clear)
                 .frame(height: 2)
-                .cornerRadius(1)
-                .padding(.horizontal, 4)
+                .frame(width: 24)
         }
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
     }
 
     private var tabBackground: Color {
-        if isActive { return PMuxColors.accent.opacity(0.12) }
+        if isActive { return PMuxColors.accentMuted }
         if isHovered { return PMuxColors.BG.elevated }
         return Color.clear
     }
 
-    private var dotState: StatusDot.StatusDotState {
-        if session.isConnecting { return .connecting }
-        return session.health.dotState
+    private var statusIcon: String {
+        if session.isConnecting { return "arrow.triangle.2.circlepath" }
+        switch session.health {
+        case .ok:       return "circle.fill"
+        case .degraded: return "exclamationmark.circle.fill"
+        case .bad:      return "exclamationmark.triangle.fill"
+        case .lost:     return "xmark.circle.fill"
+        }
+    }
+
+    private var statusColor: Color {
+        if session.isConnecting { return PMuxColors.Status.degraded }
+        return session.health.color
     }
 }

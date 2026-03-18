@@ -1,5 +1,4 @@
 /// HostBrowserRow — Row for non-favorite hosts from the Parsec API.
-/// Shows online/offline status, star button, connect button.
 
 import SwiftUI
 
@@ -12,47 +11,45 @@ struct HostBrowserRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            // Online/offline dot
-            StatusDot(
-                state: host.online ? .ok : .offline,
-                size: PMuxSpacing.statusDotLarge
-            )
+            Image(systemName: host.online ? "desktopcomputer" : "desktopcomputer")
+                .font(.system(size: 11))
+                .foregroundColor(host.online ? PMuxColors.Status.ok : PMuxColors.Status.offline)
+                .frame(width: 16)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(host.name)
                     .font(PMuxFonts.body)
                     .foregroundColor(host.online ? PMuxColors.Text.primary : PMuxColors.Text.tertiary)
                     .lineLimit(1)
 
                 if !host.userName.isEmpty {
-                    Text(host.userName)
-                        .font(PMuxFonts.metricSmall)
-                        .foregroundColor(PMuxColors.Text.tertiary)
+                    HStack(spacing: 4) {
+                        Image(systemName: "person")
+                            .font(.system(size: 8))
+                        Text(host.userName)
+                            .font(PMuxFonts.metricSmall)
+                    }
+                    .foregroundColor(PMuxColors.Text.tertiary)
                 }
             }
 
             Spacer()
 
-            if isHovered || !host.online {
+            if isHovered {
                 HStack(spacing: 6) {
-                    // Star button
                     Button { onStar() } label: {
                         Image(systemName: "star")
-                            .font(.system(size: 11))
-                            .foregroundColor(PMuxColors.Text.tertiary)
-                            .frame(width: 20, height: 20)
+                            .font(.system(size: 10))
+                            .foregroundColor(PMuxColors.Status.degraded)
                     }
                     .buttonStyle(.plain)
                     .help("Add to Favorites")
 
-                    // Connect button (only if online)
                     if host.online {
                         Button { onConnect() } label: {
                             Image(systemName: "bolt.fill")
                                 .font(.system(size: 10))
                                 .foregroundColor(PMuxColors.accent)
-                                .frame(width: 20, height: 20)
-                                .background(Circle().fill(PMuxColors.accent.opacity(0.15)))
                         }
                         .buttonStyle(.plain)
                         .help("Connect")
@@ -67,18 +64,23 @@ struct HostBrowserRow: View {
             RoundedRectangle(cornerRadius: PMuxSpacing.cardRadius, style: .continuous)
                 .fill(isHovered ? PMuxColors.BG.elevated : Color.clear)
         )
-        .opacity(host.online ? 1.0 : 0.6)
+        .opacity(host.online ? 1.0 : 0.5)
         .contentShape(Rectangle())
         .onTapGesture {
             if host.online { onConnect() }
         }
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
+        .draggable(host.peerID as String)
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
         .contextMenu {
             if host.online {
-                Button("Connect") { onConnect() }
+                Button { onConnect() } label: {
+                    Label("Connect", systemImage: "bolt.fill")
+                }
             }
-            Button("Add to Favorites") { onStar() }
+            Button { onStar() } label: {
+                Label("Add to Favorites", systemImage: "star")
+            }
         }
     }
 }
